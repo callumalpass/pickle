@@ -31,6 +31,7 @@ BIN="${ROOT}/target/debug/pickle"
   --collection-path "${TMP}/alpha" \
   --set-default >/dev/null
 "${BIN}" collections add beta "${TMP}/beta" >/dev/null
+grep -q '^spec_version: "0.3.0"$' "${TMP}/alpha/mdbase.yaml"
 
 "${BIN}" serve --listen "127.0.0.1:18787" >"${TMP}/server.log" 2>&1 &
 SERVER_PID="$!"
@@ -76,6 +77,9 @@ grep -q "request.created" "${WATCH_LOG}"
   and .message == "Approve the smoke test."
   and .response_type == "pickle_response_approval"
   and .response_type_definition.name == "pickle_response_approval"
+  and .response_type_definition.kind == "mdbase.type"
+  and .response_type_definition.schema.dialect == "json-schema-2020-12"
+  and (.response_type_definition.schema.value.properties.decision.enum == ["approve", "reject", "revise"])
   and (.attachments | length == 1)
   and .attachments[0].content_type == "text/markdown"
 ' >/dev/null
@@ -109,7 +113,7 @@ fi
 curl -fsS \
   -H "Authorization: Bearer ${TOKEN}" \
   "http://127.0.0.1:18787/api/v1/types?collection=alpha" \
-  | jq -e '.types[] | select(.name == "pickle_response_approval")' >/dev/null
+  | jq -e '.types[] | select(.name == "pickle_response_approval" and .kind == "mdbase.type")' >/dev/null
 curl -fsS \
   -H "Authorization: Bearer ${TOKEN}" \
   "http://127.0.0.1:18787/api/v1/inbox?collection=beta&status=pending" \

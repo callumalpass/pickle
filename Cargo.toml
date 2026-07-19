@@ -1,7 +1,14 @@
 [package]
 name = "pickle"
-version = "0.2.0"
+version = "0.3.0-alpha.1"
 edition = "2021"
+description = "A local mdbase-backed inbox for typed agent requests and human responses"
+license = "MIT"
+repository = "https://github.com/callumalpass/pickle"
+readme = "README.md"
+keywords = ["markdown", "inbox", "automation", "mdbase"]
+categories = ["command-line-utilities"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
 anyhow = "1"
@@ -10,7 +17,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
-mdbase = { path = "../mdbase-rs" }
+mdbase = { version = "0.3.0-alpha.1", path = "../mdbase-rs" }
 mime_guess = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

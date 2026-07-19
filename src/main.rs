@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use pickle::collection::PickleCollection;
 use pickle::config;
 use pickle::model::{CreateAttachment, CreateRequest, CreateResponse, Link};
@@ -55,62 +55,14 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1:8787")]
         listen: SocketAddr,
     },
-    Ask {
-        #[arg(long, default_value = "agent")]
-        source: String,
-        #[arg(long, default_value = "approval")]
-        kind: String,
-        #[arg(long)]
-        title: String,
-        #[arg(long, default_value = "")]
-        message: String,
-        #[arg(long, default_value = "")]
-        body: String,
-        #[arg(long)]
-        body_file: Option<PathBuf>,
-        #[arg(long)]
-        response_type: Option<String>,
-        #[arg(long, hide = true)]
-        schema: Option<PathBuf>,
-        #[arg(long, default_value = "normal")]
-        priority: String,
-        #[arg(long, default_value = "")]
-        dedupe_key: String,
-        #[arg(long)]
-        metadata: Option<PathBuf>,
-        #[arg(long)]
-        context: Option<PathBuf>,
-        #[arg(long = "link")]
-        links: Vec<String>,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[arg(long = "attach")]
-        attachments: Vec<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
-    Message {
-        #[arg(long)]
-        title: String,
-        #[arg(long, default_value = "")]
-        message: String,
-        #[arg(long, default_value = "")]
-        body: String,
-        #[arg(long)]
-        body_file: Option<PathBuf>,
-        #[arg(long = "tag")]
-        tags: Vec<String>,
-        #[arg(long = "attach")]
-        attachments: Vec<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
+    Ask(Box<AskCommand>),
+    Message(Box<MessageCommand>),
     #[command(alias = "list")]
     Inbox {
         #[arg(long, default_value = "pending")]
         status: String,
-        #[arg(long, default_value_t = 50)]
-        limit: usize,
+        #[arg(long)]
+        limit: Option<usize>,
         #[arg(long)]
         json: bool,
     },
@@ -152,6 +104,60 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Args)]
+struct AskCommand {
+    #[arg(long, default_value = "agent")]
+    source: String,
+    #[arg(long, default_value = "approval")]
+    kind: String,
+    #[arg(long)]
+    title: String,
+    #[arg(long, default_value = "")]
+    message: String,
+    #[arg(long, default_value = "")]
+    body: String,
+    #[arg(long)]
+    body_file: Option<PathBuf>,
+    #[arg(long)]
+    response_type: Option<String>,
+    #[arg(long, hide = true)]
+    schema: Option<PathBuf>,
+    #[arg(long, default_value = "normal")]
+    priority: String,
+    #[arg(long, default_value = "")]
+    dedupe_key: String,
+    #[arg(long)]
+    metadata: Option<PathBuf>,
+    #[arg(long)]
+    context: Option<PathBuf>,
+    #[arg(long = "link")]
+    links: Vec<String>,
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    #[arg(long = "attach")]
+    attachments: Vec<PathBuf>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct MessageCommand {
+    #[arg(long)]
+    title: String,
+    #[arg(long, default_value = "")]
+    message: String,
+    #[arg(long, default_value = "")]
+    body: String,
+    #[arg(long)]
+    body_file: Option<PathBuf>,
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+    #[arg(long = "attach")]
+    attachments: Vec<PathBuf>,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -199,59 +205,25 @@ async fn run() -> Result<()> {
             set_default,
         } => cmd_migrate_sqlite(sqlite, collection_name, collection_path, set_default),
         Commands::Serve { listen } => cmd_serve(listen).await,
-        Commands::Ask {
-            source,
-            kind,
-            title,
-            message,
-            body,
-            body_file,
-            response_type,
-            schema: _schema,
-            priority,
-            dedupe_key,
-            metadata,
-            context,
-            links,
-            tags,
-            attachments,
-            json,
-        } => cmd_ask(AskArgs {
+        Commands::Ask(command) => cmd_ask(AskArgs {
             collection_selector: collection_selector.clone(),
-            source,
-            kind,
-            title,
-            message,
-            body,
-            body_file,
-            response_type,
-            priority,
-            dedupe_key,
-            metadata,
-            context,
-            links,
-            tags,
-            attachments,
-            json,
+            source: command.source,
+            kind: command.kind,
+            title: command.title,
+            message: command.message,
+            body: command.body,
+            body_file: command.body_file,
+            response_type: command.response_type,
+            priority: command.priority,
+            dedupe_key: command.dedupe_key,
+            metadata: command.metadata,
+            context: command.context,
+            links: command.links,
+            tags: command.tags,
+            attachments: command.attachments,
+            json: command.json,
         }),
-        Commands::Message {
-            title,
-            message,
-            body,
-            body_file,
-            tags,
-            attachments,
-            json,
-        } => cmd_message(
-            collection_selector_ref,
-            title,
-            message,
-            body,
-            body_file,
-            tags,
-            attachments,
-            json,
-        ),
+        Commands::Message(command) => cmd_message(collection_selector_ref, *command),
         Commands::Inbox {
             status,
             limit,
@@ -346,7 +318,7 @@ fn cmd_collections(command: CollectionCommands) -> Result<()> {
     match command {
         CollectionCommands::List { json } => {
             if json {
-                print_json(&json!({
+                print_json(json!({
                     "default_collection": cfg.default_collection,
                     "collections": cfg.collections,
                 }))
@@ -457,34 +429,25 @@ fn cmd_ask(args: AskArgs) -> Result<()> {
     }
 }
 
-fn cmd_message(
-    collection_selector: Option<&str>,
-    title: String,
-    message: String,
-    body: String,
-    body_file: Option<PathBuf>,
-    tags: Vec<String>,
-    attachments: Vec<PathBuf>,
-    json_out: bool,
-) -> Result<()> {
+fn cmd_message(collection_selector: Option<&str>, command: MessageCommand) -> Result<()> {
     let collection = open_collection(collection_selector)?;
-    let body = read_body(body, body_file)?;
+    let body = read_body(command.body, command.body_file)?;
     let request = collection.create_request(CreateRequest {
         source: "callum".to_string(),
         kind: "message".to_string(),
-        title,
-        message,
+        title: command.title,
+        message: command.message,
         body,
         priority: "normal".to_string(),
         response_type: ACK_RESPONSE_TYPE.to_string(),
-        tags,
+        tags: command.tags,
         links: Vec::new(),
-        attachments: read_attachment_files(attachments)?,
+        attachments: read_attachment_files(command.attachments)?,
         metadata: json!({}),
         context: json!({}),
         dedupe_key: String::new(),
     })?;
-    if json_out {
+    if command.json {
         print_json(&request)
     } else {
         println!("{}", request.id);
@@ -495,12 +458,12 @@ fn cmd_message(
 fn cmd_inbox(
     collection_selector: Option<&str>,
     status: &str,
-    limit: usize,
+    limit: Option<usize>,
     json_out: bool,
 ) -> Result<()> {
     let requests = open_collection(collection_selector)?.list_requests(status, limit)?;
     if json_out {
-        return print_json(&json!({ "requests": requests }));
+        return print_json(json!({ "requests": requests }));
     }
     for request in requests {
         println!(
@@ -609,7 +572,7 @@ fn cmd_wait(
 
 fn cmd_events(collection_selector: Option<&str>, after: u64, limit: usize) -> Result<()> {
     let events = open_collection(collection_selector)?.events_after(after, limit)?;
-    print_json(&json!({ "events": events }))
+    print_json(json!({ "events": events }))
 }
 
 fn cmd_watch(collection_selector: Option<&str>) -> Result<()> {
@@ -633,7 +596,7 @@ fn cmd_token() -> Result<()> {
 fn cmd_types(collection_selector: Option<&str>, json_out: bool) -> Result<()> {
     let types = open_collection(collection_selector)?.list_type_definitions()?;
     if json_out {
-        print_json(&json!({ "types": types }))
+        print_json(json!({ "types": types }))
     } else {
         for definition in types {
             println!("{}", definition.name);

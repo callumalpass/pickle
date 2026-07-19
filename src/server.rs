@@ -68,13 +68,13 @@ async fn inbox(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let status = query.get("status").map(String::as_str).unwrap_or("pending");
     let limit = query
         .get("limit")
         .and_then(|raw| raw.parse::<usize>().ok())
-        .unwrap_or(100);
+        .filter(|limit| *limit > 0);
     let requests = collection
         .list_requests(status, limit)
         .map_err(internal_error)?;
@@ -87,8 +87,8 @@ async fn create_request(
     Query(query): Query<HashMap<String, String>>,
     Json(input): Json<CreateRequest>,
 ) -> Result<(StatusCode, Json<Value>), Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let request = collection.create_request(input).map_err(bad_request)?;
     Ok((StatusCode::CREATED, Json(json!(request))))
 }
@@ -99,8 +99,8 @@ async fn get_request(
     Query(query): Query<HashMap<String, String>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let request = collection
         .get_request_by_id(&id)
         .map_err(not_found_or_internal)?;
@@ -114,8 +114,8 @@ async fn respond(
     Path(id): Path<String>,
     Json(input): Json<CreateResponse>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let request = collection.respond(&id, input).map_err(bad_request)?;
     Ok(Json(json!(request)))
 }
@@ -126,8 +126,8 @@ async fn get_attachment(
     Query(query): Query<HashMap<String, String>>,
     Path((id, attachment_id)): Path<(String, String)>,
 ) -> Result<Response, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let (attachment, path) = collection
         .get_attachment(&id, &attachment_id)
         .map_err(not_found_or_internal)?;
@@ -155,8 +155,8 @@ async fn list_types(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let types = collection.list_type_definitions().map_err(internal_error)?;
     Ok(Json(json!({ "types": types })))
 }
@@ -167,8 +167,8 @@ async fn get_type(
     Query(query): Query<HashMap<String, String>>,
     Path(name): Path<String>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let definition = collection
         .read_type_definition(&name)
         .map_err(not_found_or_internal)?;
@@ -180,8 +180,8 @@ async fn events(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
-    let collection = selected_collection(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
+    let collection = selected_collection(&state, &headers, &query).map_err(|response| *response)?;
     let after = query
         .get("after")
         .and_then(|raw| raw.parse::<u64>().ok())
@@ -203,11 +203,11 @@ async fn stream(
     ws: WebSocketUpgrade,
 ) -> Response {
     if let Err(response) = require_auth(&state, &headers, &query) {
-        return response;
+        return *response;
     }
     let collection = match selected_collection(&state, &headers, &query) {
         Ok(collection) => collection,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     ws.on_upgrade(move |socket| stream_events(socket, collection))
 }
@@ -260,7 +260,7 @@ async fn list_collections(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, Response> {
-    require_auth(&state, &headers, &query)?;
+    require_auth(&state, &headers, &query).map_err(|response| *response)?;
     let mut collections = state
         .collections
         .iter()
@@ -284,24 +284,25 @@ fn selected_collection(
     state: &AppState,
     headers: &HeaderMap,
     query: &HashMap<String, String>,
-) -> Result<PickleCollection, Response> {
+) -> Result<PickleCollection, Box<Response>> {
     let requested = headers
         .get("X-Pickle-Collection")
         .and_then(|value| value.to_str().ok())
         .or_else(|| query.get("collection").map(String::as_str))
         .unwrap_or(&state.default_collection);
-    state
-        .collections
-        .get(requested)
-        .cloned()
-        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "unknown Pickle collection"))
+    state.collections.get(requested).cloned().ok_or_else(|| {
+        Box::new(error_response(
+            StatusCode::NOT_FOUND,
+            "unknown Pickle collection",
+        ))
+    })
 }
 
 fn require_auth(
     state: &AppState,
     headers: &HeaderMap,
     query: &HashMap<String, String>,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     if state.token.is_empty() {
         return Ok(());
     }
@@ -319,7 +320,10 @@ fn require_auth(
     if authorization == state.token || header_token == state.token || query_token == state.token {
         Ok(())
     } else {
-        Err(error_response(StatusCode::UNAUTHORIZED, "unauthorized"))
+        Err(Box::new(error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+        )))
     }
 }
 

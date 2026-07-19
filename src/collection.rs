@@ -4,12 +4,13 @@ use crate::model::{
 };
 use crate::templates::{
     ACK_RESPONSE_TYPE, APPROVAL_RESPONSE_TYPE, MDBASE_CONFIG, PICKLE_ACK_RESPONSE_TYPE,
-    PICKLE_APPROVAL_RESPONSE_TYPE, PICKLE_REQUEST_TYPE, REQUEST_TYPE,
+    PICKLE_ACK_RESPONSE_TYPE_V02, PICKLE_APPROVAL_RESPONSE_TYPE, PICKLE_APPROVAL_RESPONSE_TYPE_V02,
+    PICKLE_REQUEST_TYPE, PICKLE_REQUEST_TYPE_V02, REQUEST_TYPE,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use mdbase::Collection as MdbaseCollection;
+use mdbase::{Collection as MdbaseCollection, SpecProfile};
 use serde_json::{json, Map, Value};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use sha2::{Digest, Sha256};
@@ -33,24 +34,36 @@ impl PickleCollection {
         fs::create_dir_all(self.root.join("requests"))?;
         fs::create_dir_all(self.root.join("responses"))?;
         fs::create_dir_all(self.root.join("attachments"))?;
-        ensure_mdbase_config(&self.root.join("mdbase.yaml"))?;
+        let spec_family = ensure_mdbase_config(&self.root.join("mdbase.yaml"))?;
+        let (request_type, approval_type, ack_type) = match spec_family {
+            ConfigFamily::V02 => (
+                PICKLE_REQUEST_TYPE_V02,
+                PICKLE_APPROVAL_RESPONSE_TYPE_V02,
+                PICKLE_ACK_RESPONSE_TYPE_V02,
+            ),
+            ConfigFamily::V03 => (
+                PICKLE_REQUEST_TYPE,
+                PICKLE_APPROVAL_RESPONSE_TYPE,
+                PICKLE_ACK_RESPONSE_TYPE,
+            ),
+        };
         write_if_missing(
             &self.root.join("_types").join(format!("{REQUEST_TYPE}.md")),
-            PICKLE_REQUEST_TYPE,
+            request_type,
         )?;
         write_if_missing(
             &self
                 .root
                 .join("_types")
                 .join(format!("{APPROVAL_RESPONSE_TYPE}.md")),
-            PICKLE_APPROVAL_RESPONSE_TYPE,
+            approval_type,
         )?;
         write_if_missing(
             &self
                 .root
                 .join("_types")
                 .join(format!("{ACK_RESPONSE_TYPE}.md")),
-            PICKLE_ACK_RESPONSE_TYPE,
+            ack_type,
         )?;
         Ok(())
     }
@@ -58,11 +71,9 @@ impl PickleCollection {
     pub fn validate(&self) -> Result<Value> {
         self.ensure()?;
         let collection = self.open_mdbase()?;
-        let result = collection.query(&json!({ "limit": 10_000 }));
-        if let Some(error) = result.get("error") {
-            return Err(anyhow!(error.to_string()));
-        }
-        Ok(json!({ "valid": true, "issues": [] }))
+        let result = validate_records(&collection, &json!({}));
+        result_error(&result)?;
+        Ok(result)
     }
 
     pub fn create_request(&self, mut input: CreateRequest) -> Result<Request> {
@@ -152,32 +163,34 @@ impl PickleCollection {
             slugify(&frontmatter_string(&frontmatter, "title"))
         );
         let collection = self.open_mdbase()?;
-        let result = collection.create(&json!({
-            "type": REQUEST_TYPE,
-            "path": path,
-            "frontmatter": Value::Object(frontmatter),
-            "body": input.body,
-        }));
+        let result = create_record(
+            &collection,
+            &json!({
+                "type": REQUEST_TYPE,
+                "path": path,
+                "frontmatter": Value::Object(frontmatter),
+                "body": input.body,
+            }),
+        );
         result_error(&result)?;
 
         self.get_request_by_id(&id)
     }
 
-    pub fn list_requests(&self, status: &str, limit: usize) -> Result<Vec<Request>> {
+    pub fn list_requests(&self, status: &str, limit: Option<usize>) -> Result<Vec<Request>> {
         self.ensure()?;
         let collection = self.open_mdbase()?;
-        let requested_limit = if limit == 0 { 100 } else { limit.min(500) };
-        let query_limit = if status == "all" || status.is_empty() {
-            requested_limit
-        } else {
-            10_000
-        };
-        let query = collection.query(&json!({
+        let mut query_input = json!({
             "types": [REQUEST_TYPE],
             "include_body": true,
             "order_by": [{ "field": "created_at", "direction": "desc" }],
-            "limit": query_limit,
-        }));
+        });
+        if status == "all" || status.is_empty() {
+            if let Some(requested_limit) = limit {
+                query_input["limit"] = json!(requested_limit);
+            }
+        }
+        let query = collection.query(&query_input);
         result_error(&query)?;
         let responses = self.response_rows(&collection)?;
         let mut requests = Vec::new();
@@ -190,7 +203,7 @@ impl PickleCollection {
             let request = self.request_from_row(&row, &responses)?;
             if status == "all" || status.is_empty() || request.state.as_str() == status {
                 requests.push(request);
-                if requests.len() >= requested_limit {
+                if limit.is_some_and(|requested_limit| requests.len() >= requested_limit) {
                     break;
                 }
             }
@@ -246,19 +259,25 @@ impl PickleCollection {
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("linked response is missing path"))?;
-            let result = collection.update(&json!({
-                "path": path,
-                "fields": Value::Object(frontmatter),
-            }));
+            let result = update_record(
+                &collection,
+                &json!({
+                    "path": path,
+                    "fields": Value::Object(frontmatter),
+                }),
+            );
             result_error(&result)?;
         } else {
             let path = format!("responses/{}-{}.md", new_id(), slugify(&request.title));
-            let result = collection.create(&json!({
-                "type": response_type,
-                "path": path,
-                "frontmatter": Value::Object(frontmatter),
-                "body": "",
-            }));
+            let result = create_record(
+                &collection,
+                &json!({
+                    "type": response_type,
+                    "path": path,
+                    "frontmatter": Value::Object(frontmatter),
+                    "body": "",
+                }),
+            );
             result_error(&result)?;
         }
 
@@ -392,7 +411,7 @@ impl PickleCollection {
     }
 
     fn find_request_by_dedupe(&self, dedupe_key: &str) -> Result<Option<Request>> {
-        let requests = self.list_requests("all", 500)?;
+        let requests = self.list_requests("all", None)?;
         Ok(requests
             .into_iter()
             .find(|request| request.dedupe_key == dedupe_key))
@@ -408,7 +427,6 @@ impl PickleCollection {
             "types": [REQUEST_TYPE],
             "include_body": true,
             "order_by": [{ "field": "created_at", "direction": "desc" }],
-            "limit": 10_000,
         }));
         result_error(&result)?;
         Ok(result
@@ -422,7 +440,6 @@ impl PickleCollection {
         let result = collection.query(&json!({
             "include_body": true,
             "order_by": [{ "field": "responded_at", "direction": "desc" }],
-            "limit": 10_000,
         }));
         result_error(&result)?;
         Ok(result
@@ -670,14 +687,34 @@ fn write_if_missing(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-fn ensure_mdbase_config(path: &Path) -> Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigFamily {
+    V02,
+    V03,
+}
+
+fn ensure_mdbase_config(path: &Path) -> Result<ConfigFamily> {
     if !path.exists() {
-        return write_if_missing(path, MDBASE_CONFIG);
+        write_if_missing(path, MDBASE_CONFIG)?;
+        return Ok(ConfigFamily::V03);
     }
     let raw = fs::read_to_string(path)?;
     let mut yaml: YamlValue = serde_yaml::from_str(&raw)?;
     let Some(root) = yaml.as_mapping_mut() else {
-        return Ok(());
+        return Err(anyhow!("mdbase.yaml must contain a YAML mapping"));
+    };
+    let version = root
+        .get(YamlValue::String("spec_version".to_string()))
+        .and_then(YamlValue::as_str)
+        .ok_or_else(|| anyhow!("mdbase.yaml is missing spec_version"))?;
+    let family = if version.starts_with("0.2.") {
+        ConfigFamily::V02
+    } else if version.starts_with("0.3.") {
+        ConfigFamily::V03
+    } else {
+        return Err(anyhow!(
+            "unsupported mdbase spec_version {version}; Pickle supports 0.2.x and 0.3.x"
+        ));
     };
     let settings_key = YamlValue::String("settings".to_string());
     if !root.contains_key(&settings_key) {
@@ -687,7 +724,7 @@ fn ensure_mdbase_config(path: &Path) -> Result<()> {
         .get_mut(&settings_key)
         .and_then(YamlValue::as_mapping_mut)
     else {
-        return Ok(());
+        return Err(anyhow!("mdbase.yaml settings must contain a YAML mapping"));
     };
     let exclude_key = YamlValue::String("exclude".to_string());
     if !settings.contains_key(&exclude_key) {
@@ -697,7 +734,9 @@ fn ensure_mdbase_config(path: &Path) -> Result<()> {
         .get_mut(&exclude_key)
         .and_then(YamlValue::as_sequence_mut)
     else {
-        return Ok(());
+        return Err(anyhow!(
+            "mdbase.yaml settings.exclude must be a YAML sequence"
+        ));
     };
     let mut changed = false;
     for pattern in [".git", "node_modules", ".mdbase", "attachments/**"] {
@@ -709,10 +748,75 @@ fn ensure_mdbase_config(path: &Path) -> Result<()> {
     if changed {
         fs::write(path, serde_yaml::to_string(&yaml)?)?;
     }
-    Ok(())
+    Ok(family)
+}
+
+fn create_record(collection: &MdbaseCollection, input: &Value) -> Value {
+    if collection.spec_profile == SpecProfile::V03 {
+        return collection
+            .v03_operations()
+            .map(|operations| canonical_operation_value(operations.create(input)))
+            .unwrap_or_else(
+                |diagnostic| json!({ "valid": false, "result": {}, "diagnostics": [diagnostic] }),
+            );
+    }
+    collection.create(input)
+}
+
+fn update_record(collection: &MdbaseCollection, input: &Value) -> Value {
+    if collection.spec_profile == SpecProfile::V03 {
+        return collection
+            .v03_operations()
+            .map(|operations| canonical_operation_value(operations.update(input)))
+            .unwrap_or_else(
+                |diagnostic| json!({ "valid": false, "result": {}, "diagnostics": [diagnostic] }),
+            );
+    }
+    collection.update(input)
+}
+
+fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
+    if collection.spec_profile == SpecProfile::V03 {
+        return collection
+            .v03_operations()
+            .map(|operations| canonical_operation_value(operations.validate(input)))
+            .unwrap_or_else(
+                |diagnostic| json!({ "valid": false, "result": {}, "diagnostics": [diagnostic] }),
+            );
+    }
+    collection.validate_op(input)
+}
+
+fn canonical_operation_value(result: mdbase::v03::OperationResult) -> Value {
+    serde_json::to_value(result).unwrap_or_else(|error| {
+        json!({
+            "valid": false,
+            "result": {},
+            "diagnostics": [{
+                "severity": "error",
+                "code": "serialization_failed",
+                "message": error.to_string(),
+            }],
+        })
+    })
 }
 
 fn result_error(result: &Value) -> Result<()> {
+    if result.get("valid").and_then(Value::as_bool) == Some(false) {
+        let detail = result
+            .get("diagnostics")
+            .and_then(Value::as_array)
+            .map(|diagnostics| {
+                diagnostics
+                    .iter()
+                    .filter_map(|diagnostic| diagnostic.get("message").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .filter(|detail| !detail.is_empty())
+            .unwrap_or_else(|| "mdbase operation failed".to_string());
+        return Err(anyhow!(detail));
+    }
     if let Some(error) = result.get("error") {
         let message = error
             .get("message")

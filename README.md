@@ -20,6 +20,11 @@ Each Pickle collection is an mdbase collection with:
 - `responses/*.md`
 - `attachments/<request-id>/*`
 
+New collections use mdbase `0.3.0` JSON Schema type wrappers. Existing
+`0.2.x` collections remain readable and keep their legacy type files until an
+explicit migration is applied; Pickle refuses unsupported collection versions
+instead of rewriting them.
+
 Request state is derived from response links. A request with no linked response
 is `pending`, one linked response is `answered`, and multiple linked responses
 is `conflict`. The legacy `status` field is only used for explicit
@@ -126,8 +131,25 @@ Authenticated routes:
 - `GET /api/v1/events`
 - `GET /api/v1/stream`
 
-`GET /api/v1/types` exposes mdbase type definitions directly so clients can
-render response forms from the collection schema.
+`GET /api/v1/types` exposes either v0.3 type wrappers or legacy v0.2 definitions,
+matching the selected collection. Clients can therefore render response forms
+during a staged migration.
+
+## mdbase v0.3 Migration
+
+Use the mdbase CLI's reviewed migration workflow for existing collections. It
+handles Pickle's built-in and custom response types, writes a verified backup,
+and supports recovery:
+
+```bash
+cd /path/to/pickle/collection
+mdbase migrate v0.3 analyze --report migration-report.json
+mdbase migrate v0.3 apply --report migration-report.json --yes
+```
+
+Install the v0.3-capable Pickle server and Android client before applying the
+report. Keep the generated report until post-migration request and response
+smoke tests pass.
 
 ## Android
 

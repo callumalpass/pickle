@@ -150,13 +150,23 @@ pub struct Event {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeDefinition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name_key: Option<String>,
     #[serde(default)]
     pub fields: BTreeMap<String, FieldDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

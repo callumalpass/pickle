@@ -101,8 +101,6 @@ collection:
 lifecycle:
   on_create:
     set:
-      id:
-        ulid: true
       created_at:
         now: true
 ---

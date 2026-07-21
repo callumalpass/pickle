@@ -190,7 +190,7 @@ impl PickleCollection {
                 query_input["limit"] = json!(requested_limit);
             }
         }
-        let query = collection.query(&query_input);
+        let query = query_records(&collection, &query_input);
         result_error(&query)?;
         let responses = self.response_rows(&collection)?;
         let mut requests = Vec::new();
@@ -423,11 +423,14 @@ impl PickleCollection {
     }
 
     fn request_rows(&self, collection: &MdbaseCollection) -> Result<Vec<Value>> {
-        let result = collection.query(&json!({
-            "types": [REQUEST_TYPE],
-            "include_body": true,
-            "order_by": [{ "field": "created_at", "direction": "desc" }],
-        }));
+        let result = query_records(
+            collection,
+            &json!({
+                "types": [REQUEST_TYPE],
+                "include_body": true,
+                "order_by": [{ "field": "created_at", "direction": "desc" }],
+            }),
+        );
         result_error(&result)?;
         Ok(result
             .get("results")
@@ -437,10 +440,13 @@ impl PickleCollection {
     }
 
     fn response_rows(&self, collection: &MdbaseCollection) -> Result<Vec<Value>> {
-        let result = collection.query(&json!({
-            "include_body": true,
-            "order_by": [{ "field": "responded_at", "direction": "desc" }],
-        }));
+        let result = query_records(
+            collection,
+            &json!({
+                "include_body": true,
+                "order_by": [{ "field": "responded_at", "direction": "desc" }],
+            }),
+        );
         result_error(&result)?;
         Ok(result
             .get("results")
@@ -785,6 +791,26 @@ fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
             );
     }
     collection.validate_op(input)
+}
+
+fn query_records(collection: &MdbaseCollection, input: &Value) -> Value {
+    if collection.spec_profile == SpecProfile::V03 {
+        return collection
+            .v03_operations()
+            .map(|operations| flatten_canonical_operation(operations.query(input)))
+            .unwrap_or_else(|diagnostic| json!({ "valid": false, "diagnostics": [diagnostic] }));
+    }
+    collection.query(input)
+}
+
+fn flatten_canonical_operation(result: mdbase::v03::OperationResult) -> Value {
+    let mut output = result.result.as_object().cloned().unwrap_or_default();
+    output.insert("valid".to_string(), Value::Bool(result.valid));
+    output.insert(
+        "diagnostics".to_string(),
+        serde_json::to_value(result.diagnostics).unwrap_or_else(|_| json!([])),
+    );
+    Value::Object(output)
 }
 
 fn canonical_operation_value(result: mdbase::v03::OperationResult) -> Value {

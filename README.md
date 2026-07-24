@@ -154,22 +154,15 @@ smoke tests pass.
 ## Android
 
 The Android client is maintained in the sibling `pickle-android` repository. It
-uses the same HTTP API, reads each request's `response_type_definition`, and
-keeps a foreground WebSocket service open for local notifications over
-Tailscale.
+is packaged with Capacitor, uses mdbase connect for authorization and every
+collection operation, and reads response forms from mdbase type descriptors.
+It does not accept a Pickle server URL or token and does not open a direct
+Tailscale connection.
 
-For emulator testing, use:
-
-```text
-http://10.0.2.2:8787
-```
-
-For a phone on Tailscale, use the machine's Tailnet name or Tailscale IP and
-the value from:
-
-```bash
-pickle token
-```
+New request notifications are evaluated at the collection authority and
+delivered as opaque mdbase connect signals. Notification payloads contain no
+request path, title, body, or response data; the app refreshes the authorized
+collection after it wakes.
 
 ## Verification
 

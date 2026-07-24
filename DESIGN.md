@@ -8,9 +8,11 @@ high-contrast, and optimized for rapid triage.
 
 ## Visual Direction
 
-Restrained utilitarian with tactile paper-and-ink cues. Use warm neutral
-surfaces, precise dividers, compact metadata, and one controlled green accent for
-positive decisions. Avoid generic dark-blue infrastructure styling.
+Use the same pocket standards-notebook language as TaskNotes mobile: paper-like
+surfaces, blue-black ink, Atkinson Hyperlegible text, Azeret Mono metadata,
+precise rules, and compact request rows instead of cards. Accent blue indicates
+focus and selection. Green is reserved for an explicit positive decision.
+Dark mode uses deep blue-black paper rather than generic infrastructure navy.
 
 ## Interaction Principles
 
@@ -18,4 +20,6 @@ positive decisions. Avoid generic dark-blue infrastructure styling.
 - Request detail should lead with the action needed, then show source context.
 - Structured responses should render as native controls, not raw JSON.
 - Approval buttons should be close to the requested context but visually stable.
-- Offline or disconnected state should be visible without blocking reading.
+- Offline or disconnected state should be visible and actionable. Because the
+  application has no record replica, it should not imply that stale data is
+  available offline.

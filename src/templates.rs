@@ -103,6 +103,23 @@ lifecycle:
     set:
       created_at:
         now: true
+x-pickle:
+  contract: pickle.request
+  version: 1
+  field_roles:
+    id: id
+    title: title
+    source: source
+    message: message
+    kind: kind
+    status: status
+    priority: priority
+    response_type: response_type
+    created_at: created_at
+    tags: tags
+    links: links
+    attachment_paths: attachment_paths
+    metadata: metadata
 ---
 "#;
 

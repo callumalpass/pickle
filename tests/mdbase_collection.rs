@@ -27,6 +27,16 @@ fn new_collections_use_canonical_v03_config_and_type_files() {
         assert!(mdbase::v03::validate_type_file(&frontmatter, &path).is_empty());
     }
 
+    let request_type = markdown_frontmatter(
+        &fs::read_to_string(root.path().join("_types/pickle_request.md")).unwrap(),
+    );
+    assert_eq!(request_type["x-pickle"]["contract"], "pickle.request");
+    assert_eq!(request_type["x-pickle"]["version"], 1);
+    assert_eq!(
+        request_type["x-pickle"]["field_roles"]["response_type"],
+        "response_type"
+    );
+
     let type_definition = collection
         .read_type_definition(APPROVAL_RESPONSE_TYPE)
         .unwrap();

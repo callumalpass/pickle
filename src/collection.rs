@@ -173,8 +173,13 @@ impl PickleCollection {
             }),
         );
         result_error(&result)?;
+        let persisted_id = result
+            .pointer("/result/frontmatter/id")
+            .or_else(|| result.pointer("/frontmatter/id"))
+            .and_then(Value::as_str)
+            .unwrap_or(&id);
 
-        self.get_request_by_id(&id)
+        self.get_request_by_id(persisted_id)
     }
 
     pub fn list_requests(&self, status: &str, limit: Option<usize>) -> Result<Vec<Request>> {
@@ -190,7 +195,7 @@ impl PickleCollection {
                 query_input["limit"] = json!(requested_limit);
             }
         }
-        let query = collection.query(&query_input);
+        let query = query_records(&collection, &query_input);
         result_error(&query)?;
         let responses = self.response_rows(&collection)?;
         let mut requests = Vec::new();
@@ -423,11 +428,14 @@ impl PickleCollection {
     }
 
     fn request_rows(&self, collection: &MdbaseCollection) -> Result<Vec<Value>> {
-        let result = collection.query(&json!({
-            "types": [REQUEST_TYPE],
-            "include_body": true,
-            "order_by": [{ "field": "created_at", "direction": "desc" }],
-        }));
+        let result = query_records(
+            collection,
+            &json!({
+                "types": [REQUEST_TYPE],
+                "include_body": true,
+                "order_by": [{ "field": "created_at", "direction": "desc" }],
+            }),
+        );
         result_error(&result)?;
         Ok(result
             .get("results")
@@ -437,10 +445,13 @@ impl PickleCollection {
     }
 
     fn response_rows(&self, collection: &MdbaseCollection) -> Result<Vec<Value>> {
-        let result = collection.query(&json!({
-            "include_body": true,
-            "order_by": [{ "field": "responded_at", "direction": "desc" }],
-        }));
+        let result = query_records(
+            collection,
+            &json!({
+                "include_body": true,
+                "order_by": [{ "field": "responded_at", "direction": "desc" }],
+            }),
+        );
         result_error(&result)?;
         Ok(result
             .get("results")
@@ -752,7 +763,7 @@ fn ensure_mdbase_config(path: &Path) -> Result<ConfigFamily> {
 }
 
 fn create_record(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.create(input)))
@@ -764,7 +775,7 @@ fn create_record(collection: &MdbaseCollection, input: &Value) -> Value {
 }
 
 fn update_record(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.update(input)))
@@ -776,7 +787,7 @@ fn update_record(collection: &MdbaseCollection, input: &Value) -> Value {
 }
 
 fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.validate(input)))
@@ -785,6 +796,38 @@ fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
             );
     }
     collection.validate_op(input)
+}
+
+fn query_records(collection: &MdbaseCollection, input: &Value) -> Value {
+    if collection.spec_profile() == SpecProfile::V03 {
+        return collection
+            .v03_operations()
+            .map(|operations| canonical_query_value(operations.query(input)))
+            .unwrap_or_else(
+                |diagnostic| json!({ "valid": false, "result": {}, "diagnostics": [diagnostic] }),
+            );
+    }
+    collection.query(input)
+}
+
+fn canonical_query_value(result: mdbase::v03::OperationResult) -> Value {
+    let mdbase::v03::OperationResult {
+        valid,
+        result,
+        diagnostics,
+    } = result;
+    match result {
+        Value::Object(mut object) => {
+            object.insert("valid".to_string(), Value::Bool(valid));
+            object.insert("diagnostics".to_string(), json!(diagnostics));
+            Value::Object(object)
+        }
+        result => json!({
+            "valid": valid,
+            "result": result,
+            "diagnostics": diagnostics,
+        }),
+    }
 }
 
 fn canonical_operation_value(result: mdbase::v03::OperationResult) -> Value {

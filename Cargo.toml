@@ -17,7 +17,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
-mdbase = { version = "0.3.0-alpha.1", path = "../mdbase-rs" }
+mdbase = { version = "0.4.0-rc.1", path = "../mdbase-rs" }
 mime_guess = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

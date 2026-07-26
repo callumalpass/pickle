@@ -323,7 +323,7 @@ fn upsert_file(
     frontmatter: Value,
     body: &str,
 ) -> Result<()> {
-    let result = if collection.root.join(path).exists() {
+    let result = if collection.root().join(path).exists() {
         collection.update(&json!({
             "path": path,
             "fields": frontmatter,

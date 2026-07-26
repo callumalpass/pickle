@@ -173,8 +173,13 @@ impl PickleCollection {
             }),
         );
         result_error(&result)?;
+        let persisted_id = result
+            .pointer("/result/frontmatter/id")
+            .or_else(|| result.pointer("/frontmatter/id"))
+            .and_then(Value::as_str)
+            .unwrap_or(&id);
 
-        self.get_request_by_id(&id)
+        self.get_request_by_id(persisted_id)
     }
 
     pub fn list_requests(&self, status: &str, limit: Option<usize>) -> Result<Vec<Request>> {
@@ -758,7 +763,7 @@ fn ensure_mdbase_config(path: &Path) -> Result<ConfigFamily> {
 }
 
 fn create_record(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.create(input)))
@@ -770,7 +775,7 @@ fn create_record(collection: &MdbaseCollection, input: &Value) -> Value {
 }
 
 fn update_record(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.update(input)))
@@ -782,7 +787,7 @@ fn update_record(collection: &MdbaseCollection, input: &Value) -> Value {
 }
 
 fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
             .map(|operations| canonical_operation_value(operations.validate(input)))
@@ -794,23 +799,35 @@ fn validate_records(collection: &MdbaseCollection, input: &Value) -> Value {
 }
 
 fn query_records(collection: &MdbaseCollection, input: &Value) -> Value {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         return collection
             .v03_operations()
-            .map(|operations| flatten_canonical_operation(operations.query(input)))
-            .unwrap_or_else(|diagnostic| json!({ "valid": false, "diagnostics": [diagnostic] }));
+            .map(|operations| canonical_query_value(operations.query(input)))
+            .unwrap_or_else(
+                |diagnostic| json!({ "valid": false, "result": {}, "diagnostics": [diagnostic] }),
+            );
     }
     collection.query(input)
 }
 
-fn flatten_canonical_operation(result: mdbase::v03::OperationResult) -> Value {
-    let mut output = result.result.as_object().cloned().unwrap_or_default();
-    output.insert("valid".to_string(), Value::Bool(result.valid));
-    output.insert(
-        "diagnostics".to_string(),
-        serde_json::to_value(result.diagnostics).unwrap_or_else(|_| json!([])),
-    );
-    Value::Object(output)
+fn canonical_query_value(result: mdbase::v03::OperationResult) -> Value {
+    let mdbase::v03::OperationResult {
+        valid,
+        result,
+        diagnostics,
+    } = result;
+    match result {
+        Value::Object(mut object) => {
+            object.insert("valid".to_string(), Value::Bool(valid));
+            object.insert("diagnostics".to_string(), json!(diagnostics));
+            Value::Object(object)
+        }
+        result => json!({
+            "valid": valid,
+            "result": result,
+            "diagnostics": diagnostics,
+        }),
+    }
 }
 
 fn canonical_operation_value(result: mdbase::v03::OperationResult) -> Value {

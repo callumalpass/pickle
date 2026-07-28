@@ -1,9 +1,11 @@
 use pickle::collection::PickleCollection;
 use pickle::model::{CreateRequest, CreateResponse, RequestState};
 use pickle::templates::{
-    ACK_RESPONSE_TYPE, APPROVAL_RESPONSE_TYPE, MDBASE_CONFIG_V02, REQUEST_TYPE,
+    ACK_RESPONSE_TYPE, APPROVAL_RESPONSE_TYPE, MDBASE_CONFIG_V02, PICKLE_REQUEST_CONTRACT,
+    REQUEST_CONTRACT, REQUEST_CONTRACT_VERSION, REQUEST_TYPE,
 };
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
 use tempfile::tempdir;
 
@@ -17,6 +19,16 @@ fn new_collections_use_canonical_v03_config_and_type_files() {
     let config = yaml_to_json(&fs::read_to_string(root.path().join("mdbase.yaml")).unwrap());
     assert!(mdbase::v03::validate_config(&config, "mdbase.yaml").is_empty());
     assert_eq!(config["spec_version"], "0.3.0");
+    assert_eq!(config["settings"]["contracts_folder"], "_contracts");
+
+    let contract_path = format!("_contracts/{REQUEST_CONTRACT}.md");
+    let contract = markdown_frontmatter(
+        &fs::read_to_string(root.path().join(&contract_path)).expect("generated contract file"),
+    );
+    assert_eq!(contract["kind"], "mdbase.contract");
+    assert_eq!(contract["id"], REQUEST_CONTRACT);
+    assert_eq!(contract["version"], REQUEST_CONTRACT_VERSION);
+    assert!(mdbase::v03::validate_data_contract(&contract, &contract_path).is_empty());
 
     for type_name in [REQUEST_TYPE, APPROVAL_RESPONSE_TYPE, ACK_RESPONSE_TYPE] {
         let path = format!("_types/{type_name}.md");
@@ -30,11 +42,26 @@ fn new_collections_use_canonical_v03_config_and_type_files() {
     let request_type = markdown_frontmatter(
         &fs::read_to_string(root.path().join("_types/pickle_request.md")).unwrap(),
     );
-    assert_eq!(request_type["x-pickle"]["contract"], "pickle.request");
-    assert_eq!(request_type["x-pickle"]["version"], 1);
+    assert_eq!(request_type["implements"][0]["contract"], REQUEST_CONTRACT);
     assert_eq!(
-        request_type["x-pickle"]["field_roles"]["response_type"],
+        request_type["implements"][0]["version"],
+        REQUEST_CONTRACT_VERSION
+    );
+    assert_eq!(
+        request_type["implements"][0]["fields"]["response_type"],
         "response_type"
+    );
+
+    let opened = mdbase::Collection::open(root.path()).expect("open generated collection");
+    let definitions = opened.list_data_contracts();
+    assert_eq!(definitions.len(), 1);
+    assert_eq!(definitions[0].id, REQUEST_CONTRACT);
+    assert_eq!(definitions[0].version, REQUEST_CONTRACT_VERSION);
+    assert_eq!(
+        opened
+            .get_data_contract_implementations(REQUEST_CONTRACT, REQUEST_CONTRACT_VERSION)
+            .len(),
+        1
     );
 
     let type_definition = collection
@@ -49,6 +76,14 @@ fn new_collections_use_canonical_v03_config_and_type_files() {
     let validation = collection.validate().unwrap();
     assert_eq!(validation["valid"], true);
     assert!(validation.get("diagnostics").is_some());
+}
+
+#[test]
+fn built_in_contract_matches_the_connect_type_pack() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(PICKLE_REQUEST_CONTRACT.as_bytes())),
+        "6ec14bdc2bb23d9889f0d6d72a6175a74b45713891fd87e9e05e3be9075e45b1"
+    );
 }
 
 #[test]

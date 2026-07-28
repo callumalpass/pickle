@@ -1,12 +1,15 @@
 pub const REQUEST_TYPE: &str = "pickle_request";
 pub const APPROVAL_RESPONSE_TYPE: &str = "pickle_response_approval";
 pub const ACK_RESPONSE_TYPE: &str = "pickle_response_ack";
+pub const REQUEST_CONTRACT: &str = "pickle.request";
+pub const REQUEST_CONTRACT_VERSION: &str = "1.0.0";
 
 pub const MDBASE_CONFIG: &str = r#"spec_version: "0.3.0"
 name: Pickle
 description: Local mdbase collection for Pickle requests and responses.
 settings:
   types_folder: "_types"
+  contracts_folder: "_contracts"
   record_extensions: [md]
   validation: error
   exclude:
@@ -16,6 +19,50 @@ settings:
     - "attachments/**"
   include_subfolders: true
   explicit_type_keys: [type, types]
+"#;
+
+pub const PICKLE_REQUEST_CONTRACT: &str = r#"---
+kind: mdbase.contract
+id: pickle.request
+version: 1.0.0
+name: Pickle request
+description: A portable asynchronous request that needs a human response.
+schema:
+  dialect: json-schema-2020-12
+  value:
+    $schema: "https://json-schema.org/draft/2020-12/schema"
+    type: object
+    additionalProperties: true
+    required: [title, response_type]
+    properties:
+      id: { type: string }
+      title: { type: string, minLength: 1 }
+      source: { type: string }
+      message: { type: string }
+      kind: { enum: [approval, choice, input, notice, message] }
+      status: { enum: [pending, answered, cancelled] }
+      priority: { enum: [low, normal, high, urgent] }
+      response_type: { type: string }
+      created_at: { type: string, format: date-time }
+      tags:
+        type: array
+        items: { type: string }
+      links:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            label: { type: string }
+            url: { type: string }
+            path: { type: string }
+      attachment_paths:
+        type: array
+        items: { type: string }
+      metadata:
+        type: object
+        additionalProperties: true
+---
 "#;
 
 pub const PICKLE_REQUEST_TYPE: &str = r#"---
@@ -103,23 +150,23 @@ lifecycle:
     set:
       created_at:
         now: true
-x-pickle:
-  contract: pickle.request
-  version: 1
-  field_roles:
-    id: id
-    title: title
-    source: source
-    message: message
-    kind: kind
-    status: status
-    priority: priority
-    response_type: response_type
-    created_at: created_at
-    tags: tags
-    links: links
-    attachment_paths: attachment_paths
-    metadata: metadata
+implements:
+  - contract: pickle.request
+    version: 1.0.0
+    fields:
+      id: id
+      title: title
+      source: source
+      message: message
+      kind: kind
+      status: status
+      priority: priority
+      response_type: response_type
+      created_at: created_at
+      tags: tags
+      links: links
+      attachment_paths: attachment_paths
+      metadata: metadata
 ---
 "#;
 

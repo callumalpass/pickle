@@ -24,7 +24,13 @@ continue.
 
 ## Collection Contract
 
-A collection contains `pickle_request` files and response files. Responses link
+A collection contains a first-class `pickle.request` `1.0.0` data contract,
+one or more implementing request types, and response files. The built-in
+`pickle_request` type maps its fields through `implements`; consumers resolve
+the contract registry and union every implementation instead of depending on
+that concrete type name.
+
+Responses link
 to requests through their `request` field. That link is the lifecycle boundary:
 
 1. No linked response means `pending`.

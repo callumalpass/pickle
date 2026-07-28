@@ -13,6 +13,7 @@ app.
 
 Each Pickle collection is an mdbase collection with:
 
+- `_contracts/pickle.request.md`
 - `_types/pickle_request.md`
 - `_types/pickle_response_approval.md`
 - `_types/pickle_response_ack.md`
@@ -20,7 +21,13 @@ Each Pickle collection is an mdbase collection with:
 - `responses/*.md`
 - `attachments/<request-id>/*`
 
-New collections use mdbase `0.3.0` JSON Schema type wrappers. Existing
+`pickle.request` `1.0.0` is the stable, JSON Schema-defined request view. The
+`pickle_request` type declares its field mapping in `implements`; consumers
+discover that implementation from mdbase rather than interpreting Pickle-only
+type extensions. Other types can implement the same contract, and consumers
+union those providers when reading requests.
+
+New collections use mdbase `0.3.0` JSON Schema contracts and type wrappers. Existing
 `0.2.x` collections remain readable and keep their legacy type files until an
 explicit migration is applied; Pickle refuses unsupported collection versions
 instead of rewriting them.

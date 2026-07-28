@@ -5,7 +5,8 @@ use crate::model::{
 use crate::templates::{
     ACK_RESPONSE_TYPE, APPROVAL_RESPONSE_TYPE, MDBASE_CONFIG, PICKLE_ACK_RESPONSE_TYPE,
     PICKLE_ACK_RESPONSE_TYPE_V02, PICKLE_APPROVAL_RESPONSE_TYPE, PICKLE_APPROVAL_RESPONSE_TYPE_V02,
-    PICKLE_REQUEST_TYPE, PICKLE_REQUEST_TYPE_V02, REQUEST_TYPE,
+    PICKLE_REQUEST_CONTRACT, PICKLE_REQUEST_TYPE, PICKLE_REQUEST_TYPE_V02, REQUEST_CONTRACT,
+    REQUEST_TYPE,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -35,6 +36,16 @@ impl PickleCollection {
         fs::create_dir_all(self.root.join("responses"))?;
         fs::create_dir_all(self.root.join("attachments"))?;
         let spec_family = ensure_mdbase_config(&self.root.join("mdbase.yaml"))?;
+        if spec_family == ConfigFamily::V03 {
+            fs::create_dir_all(self.root.join("_contracts"))?;
+            write_if_missing(
+                &self
+                    .root
+                    .join("_contracts")
+                    .join(format!("{REQUEST_CONTRACT}.md")),
+                PICKLE_REQUEST_CONTRACT,
+            )?;
+        }
         let (request_type, approval_type, ack_type) = match spec_family {
             ConfigFamily::V02 => (
                 PICKLE_REQUEST_TYPE_V02,
@@ -221,8 +232,8 @@ impl PickleCollection {
         let collection = self.open_mdbase()?;
         let responses = self.response_rows(&collection)?;
         for row in self.request_rows(&collection)? {
-            let request_id = row
-                .pointer("/frontmatter/id")
+            let request_id = row_frontmatter(&row)
+                .and_then(|frontmatter| frontmatter.get("id"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
             if request_id == id {
@@ -459,7 +470,11 @@ impl PickleCollection {
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|row| row.pointer("/frontmatter/request").is_some())
+            .filter(|row| {
+                row_frontmatter(row)
+                    .and_then(|frontmatter| frontmatter.get("request"))
+                    .is_some()
+            })
             .collect())
     }
 
@@ -473,7 +488,7 @@ impl PickleCollection {
             .into_iter()
             .filter(|row| {
                 link_targets_request(
-                    row.pointer("/frontmatter/request"),
+                    row_frontmatter(row).and_then(|frontmatter| frontmatter.get("request")),
                     request_path,
                     self.root.file_name().and_then(|s| s.to_str()),
                 )
@@ -487,15 +502,13 @@ impl PickleCollection {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("request row is missing path"))?
             .to_string();
-        let frontmatter = row
-            .get("frontmatter")
-            .and_then(Value::as_object)
-            .ok_or_else(|| anyhow!("request row is missing frontmatter"))?;
+        let frontmatter =
+            row_frontmatter(row).ok_or_else(|| anyhow!("request row is missing frontmatter"))?;
         let linked_responses: Vec<&Value> = responses
             .iter()
             .filter(|response| {
                 link_targets_request(
-                    response.pointer("/frontmatter/request"),
+                    row_frontmatter(response).and_then(|frontmatter| frontmatter.get("request")),
                     &path,
                     self.root.file_name().and_then(|s| s.to_str()),
                 )
@@ -557,10 +570,8 @@ impl PickleCollection {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("response row is missing path"))?
             .to_string();
-        let frontmatter = row
-            .get("frontmatter")
-            .and_then(Value::as_object)
-            .ok_or_else(|| anyhow!("response row is missing frontmatter"))?;
+        let frontmatter =
+            row_frontmatter(row).ok_or_else(|| anyhow!("response row is missing frontmatter"))?;
         let response_type = string_field(frontmatter, "type", "");
         let mut payload = Map::new();
         for (key, value) in frontmatter {
@@ -888,6 +899,12 @@ fn parse_frontmatter(content: &str) -> Result<Value> {
     };
     let yaml: serde_yaml::Value = serde_yaml::from_str(frontmatter)?;
     Ok(serde_json::to_value(yaml)?)
+}
+
+fn row_frontmatter(row: &Value) -> Option<&Map<String, Value>> {
+    row.get("effective_frontmatter")
+        .or_else(|| row.get("frontmatter"))
+        .and_then(Value::as_object)
 }
 
 fn derive_state(raw_status: Option<&Value>, response_count: usize) -> RequestState {

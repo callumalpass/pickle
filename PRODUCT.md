@@ -8,7 +8,7 @@ product
 
 Developers and coding-agent users who run local automations and need a durable
 way for those agents to ask for human decisions. The first user is Callum, using
-Tickle jobs, repo-local ops files, Tailscale, and an Android phone.
+Tickle jobs, repo-local ops files, mdbase connect, and an Android phone.
 
 ## Purpose
 
@@ -22,11 +22,15 @@ human checkpoint in a local automation system.
 ## Product Principles
 
 - Human responses are durable automation inputs, not ephemeral notifications.
-- The local machine remains the system of record.
-- Android is a thin private client over Tailscale.
-- Push should work without a public server when possible.
+- The mdbase collection remains the system of record, whether its authority is
+  local or hosted.
+- Android is a thin mdbase connect client with no Pickle-specific server
+  address, bearer token, or local record replica.
+- Push is an opaque wake-up signal delivered through mdbase connect. Request
+  paths and content never pass through the control plane.
 - Schemas should be simple enough for agents to emit and clients to render.
-- Every request should be inspectable as JSON and through the UI.
+- Every request should remain inspectable as portable Markdown and through the
+  UI.
 
 ## Tone
 

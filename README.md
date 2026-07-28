@@ -13,6 +13,7 @@ app.
 
 Each Pickle collection is an mdbase collection with:
 
+- `_contracts/pickle.request.md`
 - `_types/pickle_request.md`
 - `_types/pickle_response_approval.md`
 - `_types/pickle_response_ack.md`
@@ -20,7 +21,13 @@ Each Pickle collection is an mdbase collection with:
 - `responses/*.md`
 - `attachments/<request-id>/*`
 
-New collections use mdbase `0.3.0` JSON Schema type wrappers. Existing
+`pickle.request` `1.0.0` is the stable, JSON Schema-defined request view. The
+`pickle_request` type declares its field mapping in `implements`; consumers
+discover that implementation from mdbase rather than interpreting Pickle-only
+type extensions. Other types can implement the same contract, and consumers
+union those providers when reading requests.
+
+New collections use mdbase `0.3.0` JSON Schema contracts and type wrappers. Existing
 `0.2.x` collections remain readable and keep their legacy type files until an
 explicit migration is applied; Pickle refuses unsupported collection versions
 instead of rewriting them.
@@ -154,22 +161,15 @@ smoke tests pass.
 ## Android
 
 The Android client is maintained in the sibling `pickle-android` repository. It
-uses the same HTTP API, reads each request's `response_type_definition`, and
-keeps a foreground WebSocket service open for local notifications over
-Tailscale.
+is packaged with Capacitor, uses mdbase connect for authorization and every
+collection operation, and reads response forms from mdbase type descriptors.
+It does not accept a Pickle server URL or token and does not open a direct
+Tailscale connection.
 
-For emulator testing, use:
-
-```text
-http://10.0.2.2:8787
-```
-
-For a phone on Tailscale, use the machine's Tailnet name or Tailscale IP and
-the value from:
-
-```bash
-pickle token
-```
+New request notifications are evaluated at the collection authority and
+delivered as opaque mdbase connect signals. Notification payloads contain no
+request path, title, body, or response data; the app refreshes the authorized
+collection after it wakes.
 
 ## Verification
 

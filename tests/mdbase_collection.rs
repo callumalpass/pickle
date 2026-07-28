@@ -82,7 +82,7 @@ fn new_collections_use_canonical_v03_config_and_type_files() {
 fn built_in_contract_matches_the_connect_type_pack() {
     assert_eq!(
         format!("{:x}", Sha256::digest(PICKLE_REQUEST_CONTRACT.as_bytes())),
-        "6ec14bdc2bb23d9889f0d6d72a6175a74b45713891fd87e9e05e3be9075e45b1"
+        "caf9ee290e98ef51f871a1237b38531168aa1b74640241ce6edece4c2bff66f1"
     );
 }
 

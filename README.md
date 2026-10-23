@@ -1,5 +1,7 @@
 # Pickle
 
+> **Retired (Oct 2026), no longer maintained.** Historical workflow and data-format documentation is preserved below for existing local data and reference.
+
 Pickle is a local human inbox for agents and automations. It stores requests,
 attachments, and human responses in an mdbase collection so the markdown files
 are the source of truth.
